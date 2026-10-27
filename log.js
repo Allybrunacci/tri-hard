@@ -80,7 +80,7 @@ function stravaCard() {
     </section>`;
   }
   return `<section class="card strava-card">
-    <div class="sc-top"><span class="strava-mark" aria-hidden="true">S</span><div><b>Bring in your workouts</b><small>Connect Strava and your rides, runs and swims arrive by themselves. Garmin works too, through Strava.</small></div></div>
+    <div class="sc-top"><span class="strava-mark" aria-hidden="true">S</span><div><b>Bring in your workouts</b><small>Connect Strava and your rides, runs and swims arrive by themselves. Garmin works too, through Strava. Needs a Strava subscription.</small></div></div>
     <button type="button" class="btn orange block" data-act="strava">${icon('link')} Set up Strava</button>
   </section>`;
 }

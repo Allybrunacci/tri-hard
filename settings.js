@@ -65,7 +65,8 @@ function openSettings(section) {
     const strava = stravaConnected()
       ? `<div class="set-row"><span><b>Connected${S.strava.athlete ? ` as ${esc(S.strava.athlete)}` : ''}</b><small>${S.strava.last ? `Last synced ${relTime(S.strava.last)}` : 'Not synced yet'}</small></span><button type="button" class="btn sm orange" data-act="sync">${icon('sync')} Sync</button></div>
         <div class="btn-row"><button type="button" class="btn ghost" data-act="disconnect">Disconnect Strava</button></div>`
-      : `<ol class="howto">
+      : `<div class="note up first">${icon('link')}<span><b>Needs a Strava subscription.</b> Strava only lets subscribers create the app below. Connecting costs nothing on top of that. No subscription? Tick off or log your workouts instead.</span></div>
+        <ol class="howto">
           <li>In a browser, open <a href="https://www.strava.com/settings/api" target="_blank" rel="noopener">strava.com/settings/api</a> and create an app. Name it anything (say “Tri Hard”), pick any category, and use <b>${esc(location.origin + location.pathname)}</b> as the website.</li>
           <li>Set <b>Authorization Callback Domain</b> to <code>${esc(host)}</code>.</li>
           <li>Copy the <b>Client ID</b> and <b>Client Secret</b> into the boxes below, then tap Connect.</li>

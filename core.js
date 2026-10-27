@@ -1,7 +1,7 @@
 /* Tri Hard — core: helpers, dates, storage, UI kit and router */
 'use strict';
 
-const APP_VERSION = '1.0';
+const APP_VERSION = '1.0.1';
 const STORE_KEY = 'tri-hard:v1';
 const WX_KEY = 'tri-hard:wx';
 const RACE_DEFAULT = '2027-05-02';

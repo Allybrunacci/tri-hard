@@ -534,6 +534,7 @@ textarea.input { min-height: 80px; resize: vertical; font-weight: 500; }
 .search-row .btn { flex: none; }
 .results { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .howto { margin: 0; padding-left: 20px; font-size: 13.5px; font-weight: 500; display: grid; gap: 6px; }
+.note + .howto { margin-top: 12px; }
 .howto a { font-weight: 800; color: var(--orange-d); }
 .disclaimer { margin: 20px 8px 0; font-size: 12px; font-weight: 500; color: var(--ink-3); text-align: center; }
 
