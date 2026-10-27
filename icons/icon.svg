@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <clipPath id="tile"><rect width="512" height="512" rx="112"/></clipPath>
+    <clipPath id="sun"><circle cx="256" cy="250" r="150"/></clipPath>
+  </defs>
+  <g clip-path="url(#tile)">
+    <rect width="512" height="512" fill="#003049"/>
+    <g clip-path="url(#sun)">
+      <rect x="96" y="90" width="320" height="120" fill="#FCBF49"/>
+      <rect x="96" y="210" width="320" height="60" fill="#F77F00"/>
+      <rect x="96" y="270" width="320" height="140" fill="#D62828"/>
+      <g stroke="#003049"><path d="M96 226h320" stroke-width="9"/><path d="M96 256h320" stroke-width="13"/><path d="M96 288h320" stroke-width="17"/><path d="M96 320h320" stroke-width="21"/></g>
+    </g>
+    <path d="M-14 352c27 0 27-14 54-14s27 14 54 14 27-14 54-14 27 14 54 14 27-14 54-14 27 14 54 14 27-14 54-14 27 14 54 14 27-14 54-14 27 14 54 14V512H-14z" fill="#0d4566"/>
+    <path d="M-14 384c27 0 27-14 54-14s27 14 54 14 27-14 54-14 27 14 54 14 27-14 54-14 27 14 54 14 27-14 54-14 27 14 54 14 27-14 54-14 27 14 54 14V512H-14z" fill="#EAE2B7"/>
+    <text x="256" y="462" text-anchor="middle" font-family="Bebas Neue, Impact, Arial Narrow, sans-serif" font-size="84" letter-spacing="4" fill="#003049">70.3</text>
+  </g>
+</svg>

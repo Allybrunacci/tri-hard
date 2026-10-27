@@ -1,0 +1,17 @@
+{
+  "name": "Tri Hard",
+  "short_name": "Tri Hard",
+  "description": "Your road to IRONMAN 70.3: a drag-and-drop week, weather-smart suggestions and progress tracking.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#EAE2B7",
+  "theme_color": "#003049",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}
