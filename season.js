@@ -120,6 +120,7 @@ VIEWS.plan = {
     html += `<section class="card"><h3 class="card-title">Hours each week</h3><p class="card-sub">Bars are the plan (paler bars are easy weeks). Dots are what you’ve done.</p>${volumeChart()}</section>`;
     html += `<section class="card"><h3 class="card-title">Long ride &amp; long run</h3><p class="card-sub">Your two most important sessions, building to the peak three weeks out.</p>${ladderChart()}
       <div class="chart-key"><span><i class="k-ride"></i>Long ride</span><span><i class="k-run"></i>Long run</span><span><i class="k-dot"></i>Your longest</span></div></section>`;
+    if (today() <= S.race.date) html += kitCard('Packing list, race-morning timeline, and a fuel and pacing plan that builds on your long sessions.');
     html += sectionTitle('Week by week', 'tap one to open it');
     html += `<div class="week-list">${P.weeks.map(weekRow).join('')}</div>`;
     html += `<button type="button" class="btn ghost block" data-act="settings" style="margin-top:16px">${icon('gear')} Change your starting point or hours</button>`;
@@ -132,5 +133,6 @@ VIEWS.plan = {
   act: {
     open(a) { UI.week = a.dataset.k; location.hash = '#/week'; },
     settings() { openSettings('plan'); },
+    kit() { openRaceKit(); },
   },
 };

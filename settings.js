@@ -89,6 +89,7 @@ function openSettings(section) {
         <div class="set-row"><span><b>Longest run lately</b><small>Where your long run starts</small></span>${stepper('run', S.base.run, 'Longest run lately', fmtDur(S.base.run))}</div>
         <div class="field"><span class="label">Hours a week you can train, on average</span>${seg(HOUR_OPTS, S.base.hours, 'hours')}</div>
         ${switchRow('adapt', 'Safe build-up', 'Holds the long ride and run back if you’ve fallen behind, then builds up again', S.settings.adapt)}
+        ${switchRow('checkin', 'Daily check-in', 'Asks how you feel each day, and eases today’s training when you’re tired, sore or sick', S.settings.checkin)}
       </div></div>
       <div class="set-group" id="set-week"><h3>Your usual week</h3><div class="card pad">
         <p class="hint first">How much time you usually have to train each day. Change any single week by tapping its clock on the Week page.</p>
@@ -184,6 +185,7 @@ function openSettings(section) {
       if (t.name === 'rdate' && isKey(t.value) && t.value > addDays(S.start, 27)) { S.race.date = t.value; rebuilt(); s.set(tpl()); return; }
       if (/^av\d$/.test(t.name)) { S.avail[+t.name[2]] = +t.value; save(); render(); return; }
       if (t.name === 'adapt') { S.settings.adapt = t.checked; rebuilt(); return; }
+      if (t.name === 'checkin') { S.settings.checkin = t.checked; save(); render(); return; }
       if (t.name === 'fx') { S.settings.fx = t.checked; save(); }
       if (t.name === 'race') render();
     },

@@ -1,7 +1,7 @@
 /* Tri Hard — core: helpers, dates, storage, UI kit and router */
 'use strict';
 
-const APP_VERSION = '1.0.2';
+const APP_VERSION = '1.1.0';
 const STORE_KEY = 'tri-hard:v1';
 const WX_KEY = 'tri-hard:wx';
 const RACE_DEFAULT = '2027-05-02';
@@ -79,7 +79,7 @@ function freshState() {
     created: today(),
     onboarded: false,
     name: '',
-    race: { name: 'IRONMAN 70.3', date: RACE_DEFAULT, place: '' },
+    race: { name: 'IRONMAN 70.3', date: RACE_DEFAULT, place: '', start: '06:30' },
     start: mondayOf(today()),
     base: { ride: 90, run: 45, hours: 8 },
     avail: [60, 90, 60, 90, 45, 300, 240],
@@ -88,23 +88,29 @@ function freshState() {
     weeks: {},
     logs: [],
     strava: { id: '', secret: '', access: '', refresh: '', exp: 0, athlete: '', last: 0 },
-    settings: { fx: true, heat: 28, adapt: true },
+    settings: { fx: true, heat: 28, adapt: true, checkin: true },
+    kit: { done: {}, hide: {}, mine: [] },
+    fuel: { bikeG: 60, bikeMl: 750, gelEvery: 30, bikeMins: 180, runMins: 135 },
     savedAt: 0,
   };
 }
 
-const EMPTY_WEEK = Object.freeze({ avail: Array(7).fill(null), note: Array(7).fill(''), at: {}, pin: {}, skip: {}, custom: [], why: {}, mins: {} });
+const FEELS = ['fresh', 'tired', 'sore', 'sick'];
+const newWeek = () => ({ avail: Array(7).fill(null), note: Array(7).fill(''), feel: Array(7).fill(''), feelAt: Array(7).fill(0), at: {}, pin: {}, skip: {}, full: {}, custom: [], why: {}, mins: {} });
+const EMPTY_WEEK = Object.freeze(newWeek());
 
 function normWeek(w) {
-  const o = { avail: Array(7).fill(null), note: Array(7).fill(''), at: {}, pin: {}, skip: {}, custom: [], why: {}, mins: {} };
+  const o = newWeek();
   if (!w || typeof w !== 'object') return o;
   for (let i = 0; i < 7; i++) {
     const v = Array.isArray(w.avail) ? w.avail[i] : null;
     o.avail[i] = v === null || v === undefined || v === '' ? null : clamp(Math.round(+v || 0), 0, 600);
     o.note[i] = Array.isArray(w.note) ? String(w.note[i] || '').slice(0, 60) : '';
+    o.feel[i] = Array.isArray(w.feel) && FEELS.includes(w.feel[i]) ? w.feel[i] : '';
+    o.feelAt[i] = o.feel[i] && Array.isArray(w.feelAt) ? Math.max(0, Math.round(+w.feelAt[i] || 0)) : 0;
   }
   if (w.at && typeof w.at === 'object') for (const [k, d] of Object.entries(w.at)) { const n = Math.round(+d); if (n >= 0 && n <= 6) o.at[cleanSid(k)] = n; }
-  for (const f of ['pin', 'skip']) if (w[f] && typeof w[f] === 'object') for (const [k, v] of Object.entries(w[f])) if (v) o[f][cleanSid(k)] = 1;
+  for (const f of ['pin', 'skip', 'full']) if (w[f] && typeof w[f] === 'object') for (const [k, v] of Object.entries(w[f])) if (v) o[f][cleanSid(k)] = 1;
   if (w.why && typeof w.why === 'object') for (const [k, v] of Object.entries(w.why)) o.why[cleanSid(k)] = String(v || '').slice(0, 140);
   if (w.mins && typeof w.mins === 'object') for (const [k, v] of Object.entries(w.mins)) { const n = Math.round(+v); if (n >= 5 && n <= 600) o.mins[cleanSid(k)] = n; }
   if (Array.isArray(w.custom)) {
@@ -134,6 +140,8 @@ function normLog(l) {
     sid: cleanSid(l.sid || ''),
     fixed: !!l.fixed,
     note: String(l.note || '').slice(0, 500),
+    fuel: ['good', 'gut', 'low'].includes(l.fuel) ? l.fuel : '',
+    fuelWhat: String(l.fuelWhat || '').slice(0, 120),
     t: +l.t || Date.now(),
   };
 }
@@ -148,6 +156,7 @@ function migrate(d) {
   s.race.name = String(r.name || s.race.name).slice(0, 50);
   s.race.date = isKey(r.date) ? r.date : s.race.date;
   s.race.place = String(r.place || '').slice(0, 50);
+  s.race.start = /^([01]\d|2[0-3]):[0-5]\d$/.test(r.start || '') ? r.start : s.race.start;
   s.start = isKey(d.start) ? mondayOf(d.start) : s.start;
   if (s.start > mondayOf(s.race.date)) s.start = mondayOf(s.race.date);
   const b = d.base && typeof d.base === 'object' ? d.base : {};
@@ -173,6 +182,24 @@ function migrate(d) {
   s.settings.fx = se.fx !== false;
   s.settings.heat = clamp(Math.round(+se.heat || 28), 22, 38);
   s.settings.adapt = se.adapt !== false;
+  s.settings.checkin = se.checkin !== false;
+  const kit = d.kit && typeof d.kit === 'object' ? d.kit : {};
+  const keys = o => (o && typeof o === 'object' ? Object.keys(o).filter(k => o[k]).map(k => k.replace(/[^\w-]/g, '').slice(0, 40)).filter(Boolean) : []);
+  for (const k of keys(kit.done)) s.kit.done[k] = 1;
+  for (const k of keys(kit.hide)) s.kit.hide[k] = 1;
+  if (Array.isArray(kit.mine)) {
+    s.kit.mine = kit.mine.filter(m => m && typeof m === 'object' && String(m.t || '').trim()).slice(0, 40)
+      .map(m => ({ id: cleanId(m.id), t: String(m.t).trim().slice(0, 60) }));
+  }
+  const fu = d.fuel && typeof d.fuel === 'object' ? d.fuel : {};
+  const step = (v, by, def, lo, hi) => clamp(Math.round((+v || def) / by) * by, lo, hi);
+  s.fuel = {
+    bikeG: step(fu.bikeG, 10, 60, 30, 120),
+    bikeMl: step(fu.bikeMl, 50, 750, 300, 1500),
+    gelEvery: step(fu.gelEvery, 5, 30, 15, 60),
+    bikeMins: step(fu.bikeMins, 5, 180, 90, 480),
+    runMins: step(fu.runMins, 5, 135, 60, 360),
+  };
   s.savedAt = +d.savedAt || 0;
   return s;
 }
@@ -360,7 +387,7 @@ const stripes = () => '<span class="stripes" aria-hidden="true"><i></i><i></i><i
 
 /* ---------- router ---------- */
 const VIEWS = {};
-const UI = { week: null, planOpen: null, logLimit: 40, progRange: 12 };
+const UI = { week: null, planOpen: null, logLimit: 40, progRange: 12, feelEdit: false };
 let CUR = null;
 
 function routeName() {
@@ -411,6 +438,7 @@ function checkDay() {
   if (t === DAY) return;
   DAY = t;
   UI.week = null;
+  UI.feelEdit = false;
   REV++;
   if (!SHEET && !DRAG_ACTIVE()) render();
 }

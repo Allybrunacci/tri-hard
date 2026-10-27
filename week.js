@@ -110,22 +110,27 @@ function summaryHtml(key) {
 /* ---------- session cards ---------- */
 function woCard(s, key, past) {
   const k = s.day != null ? addDays(key, s.day) : null;
-  const warn = k && !s.done ? wxWarn(s, k) : null;
+  const resting = s.rest && !s.done;
+  const warn = k && !s.done && !resting ? wxWarn(s, k) : null;
   const drag = !s.done && s.fixed == null;
   const sub = [];
   if (s.sport === 'swim' && s.metres) sub.push(`${s.metres.toLocaleString('en-AU')} m`);
-  sub.push(EFFORT[s.effort] ? EFFORT[s.effort].name : 'Easy');
-  if (s.opt) sub.push('optional');
+  sub.push(resting ? 'Rest today' : EFFORT[s.effort] ? EFFORT[s.effort].name : 'Easy');
+  if (s.opt && !resting) sub.push('optional');
   let delta = '';
-  if (!s.done && s.capped) delta = '<em class="delta held">held back</em>';
+  if (resting) delta = '<em class="delta unwell">unwell</em>';
+  else if (s.eased) delta = `<em class="delta eased">eased</em>`;
+  else if (!s.done && s.capped) delta = '<em class="delta held">held back</em>';
   else if (!s.done && s.delta && s.delta > 0) delta = `<em class="delta up">+${s.delta}m</em>`;
   else if (!s.done && s.delta && s.delta < 0 && s.key) delta = `<em class="delta down">${s.delta}m</em>`;
   const side = s.done ? `<span class="tick">${icon('check')}</span>`
-    : warn ? `<span class="warn ${warn.cls}">${icon(warn.icon)}${warn.text}</span>`
-      : s.pin && s.day != null ? `<span class="pin" title="You put this here">${icon('pin')}</span>` : '';
-  return `<div class="wo s-${s.sport}${s.key ? ' key' : ''}${s.done ? ' done' : ''}${past && !s.done ? ' missed' : ''}" data-sid="${s.id}"${drag ? ' data-drag="1"' : ''} data-act="wo" role="button" tabindex="0" aria-label="${esc(s.title)}, ${durLabel(s)}${s.done ? ', done' : ''}">
+    : resting ? `<span class="pin">${icon('rest')}</span>`
+      : warn ? `<span class="warn ${warn.cls}">${icon(warn.icon)}${warn.text}</span>`
+        : s.pin && s.day != null ? `<span class="pin" title="You put this here">${icon('pin')}</span>` : '';
+  const state = s.done ? ', done' : resting ? ', resting today' : s.eased ? ', eased for today' : '';
+  return `<div class="wo s-${s.sport}${s.key ? ' key' : ''}${s.done ? ' done' : ''}${resting ? ' resting' : ''}${past && !s.done && !resting ? ' missed' : ''}" data-sid="${s.id}"${drag ? ' data-drag="1"' : ''} data-act="wo" role="button" tabindex="0" aria-label="${esc(s.title)}, ${durLabel(s)}${state}">
     ${badge(s.sport)}
-    <span class="wo-main"><b>${esc(s.title)}</b><small>${sub.join(' · ')} ${delta}</small>${s.why && !s.done ? `<span class="why">${esc(s.why)}</span>` : ''}</span>
+    <span class="wo-main"><b>${esc(s.title)}</b><small>${sub.join(' · ')} ${delta}</small>${s.why && !s.done && !resting ? `<span class="why">${esc(s.why)}</span>` : ''}</span>
     <span class="wo-side"><span class="dur">${durHtml(s)}</span>${side}</span>
   </div>`;
 }
@@ -177,7 +182,7 @@ VIEWS.week = {
     const key = viewWeek();
     const list = sessionsFor(key);
     const isPastWeek = addDays(key, 6) < today();
-    let html = heroHtml(key) + weekNav(key) + summaryHtml(key);
+    let html = heroHtml(key) + weekNav(key) + summaryHtml(key) + checkinHtml(key) + kitCardHtml(key);
     if (!isPastWeek) {
       html += `<section class="suggest">
         <button type="button" class="btn orange big" data-act="suggest">${icon('spark')} Suggest my week</button>
@@ -210,6 +215,18 @@ VIEWS.week = {
       save();
       render();
     },
+    feel(a) { setFeel(viewWeek(), dayIdx(today()), a.dataset.v); },
+    feeledit() { UI.feelEdit = true; render(); },
+    feelkeep() { UI.feelEdit = false; render(); },
+    feelclear() { setFeel(viewWeek(), dayIdx(today()), ''); },
+    feelmove(a) {
+      const sid = a.dataset.sid, d = +a.dataset.d;
+      const undo = moveSession(viewWeek(), sid, d);
+      FLASH.add(sid);
+      render();
+      toast(`Moved to ${DAYS_LONG[d]}, at full length`, { undo });
+    },
+    kit() { openRaceKit(); },
     suggest() {
       const key = viewWeek();
       const go = () => {
@@ -405,7 +422,18 @@ function openSession(sid) {
     const defDone = s.day != null && days[s.day].k <= t ? days[s.day].k : doneDays.length ? doneDays[doneDays.length - 1].k : t;
     const logs = s.logs.map(l => `<button type="button" class="mini-log" data-act="openlog" data-id="${l.id}">${badge(l.sport, 'xs')}<span>${esc(l.name || SPORTS[l.sport].name)}<small>${fmtDay(l.d)} · ${l.src === 'strava' ? 'Strava' : l.src === 'plan' ? 'Ticked off' : 'Logged'}</small></span><b>${fmtHM(l.mins)}</b></button>`).join('');
     const planMins = (() => { const p = planWeek(key); const o = p && p.sessions.find(x => x.id === s.id); return o ? (o.parts ? o.parts[0].mins : o.mins) : null; })();
-    const adjustable = s.sport !== 'race' && !s.done;
+    const adjustable = s.sport !== 'race' && !s.done && !s.eased && !s.rest;
+    const st = weekRead(key);
+    const dayFeel = s.day != null && checkinOn() ? st.feel[s.day] : '';
+    let feelNote = '';
+    if (s.rest && !s.done) {
+      feelNote = `<div class="note feel-note f-sick">${icon('thermo')}<span><b>Rest day.</b> You checked in unwell, so this one’s off: rest is what gets you better. <button type="button" class="link-btn" data-act="fullon">Do it anyway</button></span></div>`;
+    } else if (s.eased) {
+      feelNote = `<div class="note feel-note f-${s.feel}">${icon(FEEL[s.feel].icon)}<span><b>Eased for today.</b> You checked in ${feelWord(s.feel)}. The plan had ${esc(s.orig.title)}: ${fmtDur(s.orig.mins)}, ${(EFFORT[s.orig.effort] || EFFORT.easy).name.toLowerCase()}. ${s.done ? '' : '<button type="button" class="link-btn" data-act="fullon">Do the full session</button>'}</span></div>`;
+    } else if (st.full[s.id] && dayFeel && dayFeel !== 'fresh' && s.sport !== 'race' && !s.done) {
+      feelNote = `<div class="note feel-note f-${dayFeel}">${icon(FEEL[dayFeel].icon)}<span><b>The full session</b>, even though you’re ${feelWord(dayFeel)} today. Listen to your body. <button type="button" class="link-btn" data-act="fulloff">${dayFeel === 'sick' ? 'Rest instead' : 'Ease it again'}</button></span></div>`;
+    }
+    const kitLink = s.sport === 'race' || s.role === 'shake' || (s.role === 'longride' && planWeek(key) && planWeek(key).sharpen);
     return `<div class="ss-head s-${s.sport}">
         ${badge(s.sport, 'lg')}
         <div><div class="kicker">${s.sport === 'race' ? fmtLong(S.race.date) : `${weekLabel(key)}${s.day != null ? ` · ${DAYS_LONG[s.day]}` : ' · not on a day yet'}`}</div><h2>${esc(s.title)}</h2></div>
@@ -417,11 +445,13 @@ function openSession(sid) {
         <div><small>Effort</small><b class="eff">${ef.name}</b></div>
       </div>
       ${parts}
-      ${s.capped ? `<div class="note held">${icon('heart')}<span>Held back to <b>${fmtDur(s.capped.mins)}</b> (the plan says ${fmtDur(s.capped.plan)}). Your longest ${s.role === 'longrun' ? 'run' : 'ride'} in the last 4 weeks was ${fmtDur(s.capped.best)}, so this builds back up safely. Log a longer one and the plan catches up.</span></div>` : ''}
-      ${s.delta && s.delta > 0 && !s.done ? `<div class="note up">${icon('progress')}<span><b>${s.delta} min more</b> than last week. Small steps add up to race day.</span></div>` : ''}
+      ${feelNote}
+      ${s.capped && !s.eased && !s.rest ? `<div class="note held">${icon('heart')}<span>Held back to <b>${fmtDur(s.capped.mins)}</b> (the plan says ${fmtDur(s.capped.plan)}). Your longest ${s.role === 'longrun' ? 'run' : 'ride'} in the last 4 weeks was ${fmtDur(s.capped.best)}, so this builds back up safely. Log a longer one and the plan catches up.</span></div>` : ''}
+      ${s.delta && s.delta > 0 && !s.done && !s.eased && !s.rest ? `<div class="note up">${icon('progress')}<span><b>${s.delta} min more</b> than last week. Small steps add up to race day.</span></div>` : ''}
       <div class="effort-box"><b>${ef.rpe}</b> ${ef.talk}</div>
       ${s.steps.length ? `<h3 class="ss-h">The session</h3><ol class="steps">${s.steps.map(x => `<li>${x}</li>`).join('')}</ol>` : ''}
       ${s.why ? `<p class="ss-why">${icon('spark')}<span>${esc(s.why)}</span></p>` : ''}
+      ${kitLink ? `<button type="button" class="btn yellow block kit-btn" data-act="kit">${icon('bag')} ${s.sport === 'race' ? 'Your race morning, fuel and pacing' : 'Your race-day kit and packing list'}</button>` : ''}
       ${tips.length ? `<h3 class="ss-h">Tips</h3><ul class="tips">${tips.map(x => `<li>${x}</li>`).join('')}</ul>` : ''}
       ${k && wx ? `<div class="ss-wx">${icon('wx-' + wmo(wxDay(k).code)[0])}<span><b>${fmtDay(k)}${S.when !== 'any' ? `, ${S.when}` : bt ? `, from ${fmtHour(bt.from)}` : ''}</b>${cap(wxWords(wx))}${bt && S.when !== 'any' && bt.from !== wx.from ? `. Best time: ${fmtHour(bt.from)}` : ''}</span></div>` : ''}
       ${logs ? `<h3 class="ss-h">Done</h3><div class="mini-logs">${logs}</div>` : ''}
@@ -517,6 +547,21 @@ function openSession(sid) {
         sh.set(tpl());
         render();
       },
+      fullon(a, e, sh) {
+        const s = findSession(sid);
+        weekEdit(s.week).full[sid] = 1;
+        save();
+        sh.set(tpl());
+        render();
+      },
+      fulloff(a, e, sh) {
+        const s = findSession(sid);
+        delete weekEdit(s.week).full[sid];
+        save();
+        sh.set(tpl());
+        render();
+      },
+      kit() { const s = findSession(sid); openRaceKit(s && s.sport === 'race' ? 'morning' : 'pack'); },
       delcustom(a, e, sh) {
         const s = findSession(sid);
         const st = weekEdit(s.week);

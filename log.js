@@ -141,8 +141,9 @@ function openLogSheet(l, preset) {
   const isNew = !l;
   const ro = !!l && l.src === 'strava';
   const f = l
-    ? { sport: l.sport, d: l.d, h: Math.floor(l.mins / 60), m: l.mins % 60, km: l.km ? String(l.sport === 'swim' ? Math.round(l.km * 1000) : Math.round(l.km * 100) / 100) : '', rpe: l.rpe, name: l.name, note: l.note, match: l.fixed ? l.sid || 'none' : 'auto' }
-    : Object.assign({ sport: 'run', d: today(), h: 0, m: 45, km: '', rpe: 3, name: '', note: '', match: 'auto' }, preset || {});
+    ? { sport: l.sport, d: l.d, h: Math.floor(l.mins / 60), m: l.mins % 60, km: l.km ? String(l.sport === 'swim' ? Math.round(l.km * 1000) : Math.round(l.km * 100) / 100) : '', rpe: l.rpe, name: l.name, note: l.note, fuel: l.fuel, fuelWhat: l.fuelWhat, match: l.fixed ? l.sid || 'none' : 'auto' }
+    : Object.assign({ sport: 'run', d: today(), h: 0, m: 45, km: '', rpe: 3, name: '', note: '', fuel: '', fuelWhat: '', match: 'auto' }, preset || {});
+  const fuelable = () => f.sport === 'bike' || f.sport === 'run';
   const tpl = () => {
     const wk = mondayOf(f.d);
     const opts = baseSessions(wk).filter(s => !s.skip && s.sport !== 'race' && sportFits(s, f.sport));
@@ -167,6 +168,9 @@ function openLogSheet(l, preset) {
     return `${sheetHead(isNew ? 'Log a workout' : esc(l.name || SPORTS[l.sport].name), ro ? 'From Strava' : l && l.src === 'plan' ? 'Ticked off from your plan' : '')}
       <form novalidate>${facts}${form}
         <div class="field"><span class="label">How did it feel?</span>${seg(EFFORTS, f.rpe, 'rpe', 'efforts')}</div>
+        ${fuelable() ? `<div class="field"><span class="label">Fuel <span class="faint">(optional, handy for longer sessions)</span></span>
+          <div class="chips fuel-chips">${FUEL_OPTS.map(([v, t]) => `<button type="button" class="chip${f.fuel === v ? ' on' : ''}" data-act="fuel" data-v="${v}" aria-pressed="${f.fuel === v}">${t}</button>`).join('')}</div>
+          <input class="input" name="fuelWhat" maxlength="120" value="${esc(f.fuelWhat)}" placeholder="What did you have? e.g. 2 bottles of sports drink, 3 gels" aria-label="What you ate and drank"></div>` : ''}
         <div class="field"><span class="label">Counts as</span>${matchSel}</div>
         <div class="field"><label for="lg-note">Notes <span class="faint">(optional)</span></label><textarea id="lg-note" class="input" name="note" maxlength="500" placeholder="Legs, fuel, weather…">${esc(f.note)}</textarea></div>
         <div class="btn-row"><button type="submit" class="btn orange">${icon('check')} ${isNew ? 'Save' : 'Save changes'}</button></div>
@@ -178,6 +182,7 @@ function openLogSheet(l, preset) {
     act: {
       sport(a, e, sh) { f.sport = a.dataset.v; if (f.match !== 'auto' && f.match !== 'none') f.match = 'auto'; sh.set(tpl()); },
       rpe(a, e, sh) { f.rpe = +a.dataset.v; sh.set(tpl()); },
+      fuel(a, e, sh) { f.fuel = f.fuel === a.dataset.v ? '' : a.dataset.v; sh.set(tpl()); },
       del(a, e, sh) {
         const i = S.logs.indexOf(l);
         if (i < 0) return;
@@ -207,7 +212,8 @@ function openLogSheet(l, preset) {
       const sid = f.match === 'auto' || f.match === 'none' ? '' : f.match;
       const before = l ? Object.assign({}, l) : null;
       const target = l || {};
-      Object.assign(target, normLog(Object.assign({}, l || { id: uid(), src: 'manual', t: Date.now() }, ro ? {} : { sport: f.sport, d: f.d, mins, km, name: f.name.trim() }, { rpe: f.rpe, note: f.note.trim(), sid, fixed })));
+      const fuel = fuelable() ? { fuel: f.fuel, fuelWhat: String(f.fuelWhat || '').trim() } : { fuel: '', fuelWhat: '' };
+      Object.assign(target, normLog(Object.assign({}, l || { id: uid(), src: 'manual', t: Date.now() }, ro ? {} : { sport: f.sport, d: f.d, mins, km, name: f.name.trim() }, { rpe: f.rpe, note: f.note.trim(), sid, fixed }, fuel)));
       if (!l) S.logs.push(target);
       const weeks = new Set([mondayOf(target.d)]);
       if (before) weeks.add(mondayOf(before.d));

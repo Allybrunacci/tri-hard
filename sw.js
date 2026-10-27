@@ -1,9 +1,9 @@
 /* Tri Hard — offline support. Network first so updates show straight away; the cache is the fallback.
    Only touches its own caches, so other apps on the same site keep theirs. */
-const CACHE = 'tri-hard-v1';
+const CACHE = 'tri-hard-v2';
 const SHELL = [
   './', './index.html', './app.css', './core.js', './plan.js', './weather.js', './planner.js', './strava.js', './log.js',
-  './week.js', './season.js', './progress.js', './settings.js', './manifest.webmanifest',
+  './week.js', './season.js', './progress.js', './checkin.js', './racekit.js', './settings.js', './manifest.webmanifest',
   './icons/icon.svg', './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png',
   './fonts/shrikhand-latin.woff2', './fonts/bebas-latin.woff2', './fonts/rubik-latin.woff2',
 ];

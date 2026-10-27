@@ -28,7 +28,7 @@ const VOLUME = {
 // Brick runs straight off the long ride, by weeks to race.
 const BRICK_RUN = { 13: 10, 11: 10, 9: 15, 8: 15, 7: 15, 5: 20, 4: 20, 3: 25 };
 
-const FUEL_RIDE = 'Fuel as you go: eat every 30 min (about 40–60 g of carbs an hour) and sip every 10–15 min. Practise what you’ll use on race day.';
+const FUEL_RIDE = 'Fuel as you go: eat every 30 min (about 40–60 g of carbs an hour) and sip every 10–15 min. Practise what you’ll use on race day, and note how it went when you log the ride.';
 const FUEL_RUN = 'For runs over 75 min, carry water and a gel or snack and take it around halfway.';
 const swimMins = m => round5(m * 0.021);
 const geo = (a, b, f) => a * Math.pow(b / a, f);
@@ -313,6 +313,8 @@ function baseSessions(key) {
       s.pin = !!st.pin[s.id];
       s.skip = !!st.skip[s.id];
       s.why = st.why[s.id] || '';
+      const f = feelFor(s, st);
+      if (f) feelAdjust(s, f);
     }
     return list;
   });
@@ -337,7 +339,7 @@ function weekTotals(key) {
     const out = { plan: 0, done: 0, by: {}, sessions: 0, doneSessions: 0 };
     const add = (sport, f, m) => { const o = out.by[sport] || (out.by[sport] = { plan: 0, done: 0 }); o[f] += m; };
     for (const s of sessionsFor(key)) {
-      if (s.skip || s.sport === 'race') continue;
+      if (s.skip || s.rest || s.sport === 'race') continue;
       out.plan += s.mins;
       out.sessions++;
       if (s.done) out.doneSessions++;

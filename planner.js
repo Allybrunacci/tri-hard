@@ -4,7 +4,7 @@
 function dayInfo(key, d) {
   const k = addDays(key, d);
   const st = weekRead(key);
-  return { d, k, avail: st.avail[d] != null ? st.avail[d] : S.avail[d], note: st.note[d], past: k < today() };
+  return { d, k, avail: st.avail[d] != null ? st.avail[d] : S.avail[d], note: st.note[d], past: k < today(), feel: checkinOn() ? st.feel[d] : '' };
 }
 const availOn = (key, d) => dayInfo(key, d).avail;
 
@@ -44,6 +44,8 @@ function fitScore(s, day, load) {
   let sc = s.w * wxFit(s.wxk, wxFor(day.k, s.wxk, s.mins));
   if (s.key) sc += 0.35 * clamp((day.avail - load) / (s.mins * 1.4), 0, 1);
   if (s.prefer != null) sc += s.prefer === day.d ? 1.2 : -0.6;
+  if (day.feel === 'tired' && (s.key || s.effort === 'steady' || s.effort === 'mixed')) sc -= 1.2;
+  if (day.feel === 'sore' && (s.sport === 'run' || s.parts)) sc -= 1.2;
   return sc;
 }
 
@@ -58,10 +60,11 @@ function suggestWeek(key) {
   const pw = planWeek(key);
   const phase = pw ? pw.phase : 'base';
   const days = Array.from({ length: 7 }, (_, d) => dayInfo(key, d));
-  const all = sessionsFor(key).filter(s => !s.skip);
+  // Plan with full-length sessions: a check-in only eases what lands on that day.
+  const all = sessionsFor(key).filter(s => !s.skip).map(s => (s.orig && !s.done && !s.rest ? Object.assign({}, s.orig, { day: s.day, pin: s.pin }) : s));
   const fixed = [], todo = [];
   for (const s of all) {
-    if (s.done || s.fixed != null || (s.pin && s.day != null && !days[s.day].past)) fixed.push(s);
+    if (s.done || s.rest || s.fixed != null || (s.pin && s.day != null && !days[s.day].past)) fixed.push(s);
     else todo.push(s);
   }
   todo.sort((a, b) => b.w - a.w || b.mins - a.mins);
@@ -71,13 +74,14 @@ function suggestWeek(key) {
     if (!fitCache.has(k)) fitCache.set(k, fitScore(s, day, load));
     return fitCache.get(k);
   };
-  const start = { score: 0, at: {}, lists: days.map(d => fixed.filter(s => s.day === d.d)), load: days.map(d => sum(fixed.filter(s => s.day === d.d).map(s => s.mins))) };
+  const busy = fixed.filter(s => !s.rest);
+  const start = { score: 0, at: {}, lists: days.map(d => busy.filter(s => s.day === d.d)), load: days.map(d => sum(busy.filter(s => s.day === d.d).map(s => s.mins))) };
   let beam = [start];
   for (const s of todo) {
     const next = [];
     for (const st of beam) {
       for (const day of days) {
-        if (day.past || day.avail <= 0) continue;
+        if (day.past || day.avail <= 0 || day.feel === 'sick') continue;
         if (st.load[day.d] + s.mins > day.avail + 10) continue;
         const list = st.lists[day.d];
         if (list.length >= 3 || (list.length >= 2 && s.sport !== 'strength')) continue;
@@ -176,6 +180,8 @@ function applySuggestion(key, res) {
 function placementNote(key, s, d) {
   const day = dayInfo(key, d);
   if (day.avail <= 0) return `${DAYS_LONG[d]} is marked as no training.`;
+  if (s && s.rest) return `You checked in unwell on ${DAYS_LONG[d]}, so it’s a rest there.`;
+  if (s && s.eased) return `You’re ${s.feel} on ${DAYS_LONG[d]}, so it’s been eased.`;
   const others = sessionsFor(key).filter(o => o.id !== s.id && o.day === d && !o.skip);
   const load = sum(others.map(o => o.mins)) + s.mins;
   if (load > day.avail + 10) return `That’s ${fmtDur(load)} on ${DAYS[d]}, but you’ve only got ${fmtAvail(day.avail)}.`;
