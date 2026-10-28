@@ -34,17 +34,64 @@ const swimMins = m => round5(m * 0.021);
 const geo = (a, b, f) => a * Math.pow(b / a, f);
 const lin = (r, f) => r[0] + (r[1] - r[0]) * f;
 
+/* ---------- distances ---------- */
+// Race distances, and how much quicker each effort is than your easy pace.
+const RACE_KM = { swim: 1.9, bike: 90, run: 21.1 };
+const RIDE_GOAL_KM = 100;
+const EFFORT_SPEED = { recovery: 0.92, easy: 1, mixed: 1, steady: 1.07 };
+
+// Your easy riding speed (km/h) and running pace (seconds per km): learned from rides and runs you've
+// logged with a distance in the last 8 weeks, otherwise your own numbers from Settings.
+function paces() {
+  return memo('paces', () => {
+    const t = today(), from = addDays(t, -56);
+    const learn = (sport, min, lo, hi) => {
+      if (!S.pace.auto) return null;
+      const ls = S.logs.filter(l => l.sport === sport && l.src !== 'plan' && l.km > 0 && l.mins >= min && l.d >= from && l.d <= t && l.rpe <= 5)
+        .filter(l => { const v = l.km / (l.mins / 60); return v >= lo && v <= hi; })
+        .sort((a, b) => (b.d + b.at).localeCompare(a.d + a.at)).slice(0, 6);
+      return ls.length >= 2 ? { n: ls.length, v: sum(ls.map(l => l.km)) / (sum(ls.map(l => l.mins)) / 60) } : null;
+    };
+    const r = learn('bike', 40, 12, 45), u = learn('run', 20, 6, 20);
+    return {
+      ride: r ? clamp(Math.round(r.v * 2) / 2, 12, 45) : S.pace.ride,
+      run: u ? clamp(Math.round(3600 / u.v / 5) * 5, 180, 600) : S.pace.run,
+      rideN: r ? r.n : 0,
+      runN: u ? u.n : 0,
+    };
+  });
+}
+const speedFor = (sport, effort) => (sport === 'bike' ? paces().ride : sport === 'run' ? 3600 / paces().run : 0) * (EFFORT_SPEED[effort] || 1);
+const kmFor = (sport, mins, effort) => mins / 60 * speedFor(sport, effort);
+const minsFor = (sport, km, effort) => Math.max(5, Math.round(km / speedFor(sport, effort) * 60));
+const kmNum = (km, sport) => (sport === 'bike' ? Math.round(km) : Math.round(km * 10) / 10);
+const fmtKm = (km, sport) => (sport === 'swim' ? `${Math.round(km * 1000).toLocaleString('en-AU')} m` : `${kmNum(km, sport)} km`);
+const fmtPace = secs => `${Math.floor(secs / 60)}:${pad(Math.round(secs % 60))} /km`;
+const reaches = (sport, km) => (sport === 'swim' ? Math.round(km * 1000) >= 1900 : kmNum(km, sport) >= RACE_KM[sport]);
+const runKm = (km, peak) => (km >= peak - 0.25 ? peak : Math.max(3, Math.round(km * 2) / 2));
+
+// How far each part of a session goes: [{ sport, km }]. Swims use their metres.
+function legKm(s) {
+  if (s.sport === 'swim') return s.metres ? [{ sport: 'swim', km: s.metres / 1000 }] : [];
+  if (s.parts) return s.parts.map(p => ({ sport: p.sport, km: kmFor(p.sport, p.mins, s.effort) }));
+  return s.sport === 'bike' || s.sport === 'run' ? [{ sport: s.sport, km: kmFor(s.sport, s.mins, s.effort) }] : [];
+}
+const distLabel = s => legKm(s).map(x => fmtKm(x.km, x.sport)).join(' + ');
+// A logged workout's distance, estimated from its time at your easy pace if it has none.
+const logKm = l => l.km || (l.sport === 'bike' || l.sport === 'run' ? kmFor(l.sport, l.mins, 'easy') : 0);
+
 function mk(w, role, o) {
   return Object.assign({
     id: `${w.key}:${role}`, role, week: w.key, sport: 'other', title: '', mins: 30, effort: 'easy',
-    key: false, opt: false, w: 1, wxk: 'indoor', steps: [], why: '', tips: [], parts: null, metres: 0, fixed: null, prefer: null,
+    key: false, opt: false, w: 1, wxk: 'indoor', steps: [], why: '', tips: [], parts: null, metres: 0, cont: 0, fixed: null, prefer: null,
   }, o);
 }
 
 /* ---------- the plan ---------- */
 let PLAN = null;
 function plan() {
-  const sig = [S.start, S.race.date, S.race.name, S.base.ride, S.base.run, S.base.hours].join('|');
+  const pc = paces();
+  const sig = [S.start, S.race.date, S.race.name, S.base.ride, S.base.run, S.base.hours, pc.ride, pc.run].join('|');
   if (PLAN && PLAN.sig === sig) return PLAN;
   PLAN = buildPlan();
   PLAN.sig = sig;
@@ -55,11 +102,18 @@ function buildPlan() {
   const start = S.start, raceMon = mondayOf(S.race.date);
   const n = Math.max(1, Math.round(daysBetween(start, raceMon) / 7) + 1);
   const V = VOLUME[S.base.hours] || VOLUME[8];
+  const rideKmh = speedFor('bike', 'easy'), runKmh = speedFor('run', 'easy');
+  // The long ride and long run build by distance, to at least race distance three weeks out.
+  const timeRide = clamp(Math.max(V.ride, round5(S.base.ride + 30)), 60, 270);
+  const timeRun = clamp(Math.max(V.run, round5(S.base.run + 15)), 30, 130);
+  let peakRideKm = clamp(Math.max(RIDE_GOAL_KM, timeRide / 60 * rideKmh), RACE_KM.bike, 120);
+  if (peakRideKm / rideKmh > 5.5) peakRideKm = Math.max(RACE_KM.bike, 5.5 * rideKmh);
+  const peakRunKm = clamp(timeRun / 60 * runKmh, RACE_KM.run, 24);
   const P = {
-    V, n, start, raceMon,
-    ride0: S.base.ride, run0: S.base.run,
-    peakRide: clamp(Math.max(V.ride, round5(S.base.ride + 30)), 60, 270),
-    peakRun: clamp(Math.max(V.run, round5(S.base.run + 15)), 30, 130),
+    V, n, start, raceMon, peakRideKm, peakRunKm,
+    ride0Km: Math.min(S.base.ride / 60 * rideKmh, peakRideKm), run0Km: Math.min(S.base.run / 60 * runKmh, peakRunKm),
+    peakRide: minsFor('bike', peakRideKm, 'easy'),
+    peakRun: minsFor('run', peakRunKm, 'easy'),
   };
   const weeks = [];
   for (let i = 0; i < n; i++) {
@@ -78,13 +132,25 @@ function buildPlan() {
     w.sessions = makeWeek(w, P).filter(Boolean);
     if (!w.rec && w.wtr >= 3) prevLoad = w;
   }
-  // How each session compares with the same one last week.
+  // How each session compares with the same one last week (long sessions by distance too).
   for (let i = 1; i < weeks.length; i++) {
     const prev = {};
     for (const s of weeks[i - 1].sessions) prev[s.role] = s;
     for (const s of weeks[i].sessions) {
       const p = prev[s.role];
       if (p && p.sport !== 'race') s.delta = (s.parts ? s.parts[0].mins : s.mins) - (p.parts ? p.parts[0].mins : p.mins);
+      if (p && (s.role === 'longride' || s.role === 'longrun')) {
+        const a = legKm(s)[0], b = legKm(p)[0];
+        if (a && b && a.sport === b.sport) s.deltaKm = kmNum(a.km, a.sport) - kmNum(b.km, b.sport);
+      }
+    }
+  }
+  // The first time each discipline reaches race distance: the swim in one go, the long ride and the long run.
+  const firsts = {};
+  for (const w of weeks) {
+    for (const s of w.sessions) {
+      const legs = s.role === 'swim' ? [{ sport: 'swim', km: s.cont / 1000 }] : s.role === 'longride' || s.role === 'longrun' ? legKm(s).slice(0, 1) : [];
+      for (const x of legs) if (!firsts[x.sport] && reaches(x.sport, x.km)) { firsts[x.sport] = { key: w.key, i: w.i, sid: s.id }; s.milestone = x.sport; }
     }
   }
   const byKey = {};
@@ -92,7 +158,7 @@ function buildPlan() {
     byKey[w.key] = w;
     w.total = sum(w.sessions.filter(s => s.sport !== 'race').map(s => s.mins));
   }
-  return { P, weeks, byKey, start, raceMon };
+  return { P, weeks, byKey, start, raceMon, firsts };
 }
 
 function makeWeek(w, P) {
@@ -121,40 +187,45 @@ function makeWeek(w, P) {
 
 function swimSession(w) {
   const o = { sport: 'swim', wxk: 'swim', w: 1, effort: 'steady', why: 'One good swim a week keeps your swim strong while the bike and run get the extra time.' };
-  let title, metres, steps, tips = [];
+  let title, metres, steps, cont, tips = [];
   if (w.phase === 'race') {
-    title = 'Pre-race swim'; metres = 1200; o.effort = 'easy'; o.why = 'Loosens you up and reminds your body of race effort, without tiring you.';
+    title = 'Pre-race swim'; metres = 1200; cont = 400; o.effort = 'easy'; o.why = 'Loosens you up and reminds your body of race effort, without tiring you.';
     steps = ['400 m easy', '4 × 100 m at race effort, 20 s rest', '4 × 50 m easy, 15 s rest', '200 m easy'];
     tips = ['If you can, have a swim in your wetsuit at the race venue.'];
   } else if (w.phase === 'taper') {
-    title = 'Sharp swim'; metres = 2000; o.why = 'Keeps your feel for the water while you freshen up.';
+    title = 'Sharp swim'; metres = 2000; cont = 400; o.why = 'Keeps your feel for the water while you freshen up.';
     steps = ['400 m easy', '8 × 100 m at race effort, 15 s rest', '4 × 50 m building to strong, 15 s rest', '400 m easy with a pull buoy', '200 m easy'];
   } else if (w.sharpen) {
-    title = 'Race-distance swim'; metres = 2700; o.why = 'A full race-distance swim at race effort: proof you’re ready for the 1.9 km.';
+    title = 'Race-distance swim'; metres = 2700; cont = 2000; o.why = 'A full race-distance swim at race effort: proof you’re ready for the 1.9 km.';
     steps = ['400 m easy warm-up', '2,000 m continuous at race effort, sighting every 6–8 strokes', '300 m easy'];
     tips = ['Do this one in open water in your wetsuit if you can.'];
   } else {
     const m0 = 2000 + 1000 * w.f;
     if (w.rec) {
       const reps = Math.max(4, Math.round((m0 * 0.8 - 700) / 100));
-      title = 'Easy swim'; o.effort = 'easy'; metres = 700 + reps * 100; o.why = 'A lighter swim in a lighter week. Stay smooth and relaxed.';
+      title = 'Easy swim'; o.effort = 'easy'; metres = 700 + reps * 100; cont = 300; o.why = 'A lighter swim in a lighter week. Stay smooth and relaxed.';
       steps = ['300 m easy, mixing strokes', `${reps} × 100 m smooth and easy, 15 s rest`, '200 m with a pull buoy', '200 m easy'];
     } else if (w.phase === 'base') {
       const reps = Math.max(2, Math.round((m0 - 700) / 400));
-      title = 'Endurance swim'; metres = 700 + reps * 400;
+      title = 'Endurance swim'; metres = 700 + reps * 400; cont = 400;
       steps = ['300 m easy warm-up', '4 × 50 m drills (catch-up, fingertip drag), 15 s rest', `${reps} × 400 m steady, 20 s rest`, '200 m easy'];
     } else if (w.phase === 'build') {
-      const reps = Math.max(3, Math.round((m0 - 600) / 500));
-      title = 'Steady swim'; metres = 600 + reps * 500;
-      steps = ['400 m easy warm-up', `${reps} × 500 m at race effort, 20 s rest. Sight every 6–8 strokes on the last length`, '200 m easy'];
+      // Longer repeats through the build, so the distance you swim in one go grows towards 1.9 km.
+      const len = round100(500 + 1000 * clamp((13 - w.wtr) / 6, 0, 1));
+      const reps = Math.max(1, Math.floor((m0 - 600) / len));
+      const extra = round100(m0 - 600 - reps * len);
+      title = 'Steady swim'; cont = len; metres = 600 + reps * len + (extra >= 300 ? extra : 0);
+      steps = ['400 m easy warm-up', reps > 1 ? `${reps} × ${len.toLocaleString('en-AU')} m at race effort, 30 s rest. Sight every 6–8 strokes` : `${len.toLocaleString('en-AU')} m continuous at race effort, sighting every 6–8 strokes`];
+      if (extra >= 300) steps.push(`${extra.toLocaleString('en-AU')} m easy with a pull buoy`);
+      steps.push('200 m easy');
     } else {
-      const c = round100(m0 - 600);
-      title = 'Long continuous swim'; metres = 600 + c;
+      const c = clamp(round100(m0 - 600), 1900, round100(1900 + 250 * (5 - w.wtr)));
+      title = 'Long continuous swim'; metres = 600 + c; cont = c;
       steps = ['400 m easy warm-up', `${c.toLocaleString('en-AU')} m continuous at race effort, sighting every 6–8 strokes`, '200 m easy'];
       tips = ['Open water in your wetsuit is perfect for this one if you can.'];
     }
   }
-  return mk(w, 'swim', Object.assign(o, { title, metres, mins: swimMins(metres), steps, tips }));
+  return mk(w, 'swim', Object.assign(o, { title, metres, cont, mins: swimMins(metres), steps, tips }));
 }
 
 function longRide(w, P) {
@@ -164,30 +235,32 @@ function longRide(w, P) {
     return mk(w, 'longride', Object.assign(o, { sport: 'bike', title: 'Taper ride', mins: round5(P.peakRide * 0.55), effort: 'mixed', steps: ['20 min easy', '3 × 10 min at race effort, 5 min easy between', 'Easy to finish'], why: 'Shorter, with a few race-effort blocks to keep you sharp.' }));
   }
   if (w.sharpen) {
-    const ride = round5(P.peakRide * 0.85);
+    const km = Math.round(P.peakRideKm * 0.85);
+    const ride = minsFor('bike', km, 'steady');
     return mk(w, 'longride', Object.assign(o, {
       sport: 'brick', title: 'Race rehearsal', mins: ride + 30, parts: [{ sport: 'bike', mins: ride }, { sport: 'run', mins: 30 }], effort: 'steady',
-      steps: [`Ride ${fmtDur(ride)}: 30 min easy, then race effort for the rest`, 'Use your race-day bike set-up, kit and nutrition', 'Straight into a 30 min run: 10 min easy, then race effort', 'Note what worked. Nothing new on race day'],
+      steps: [`Ride ${km} km (about ${fmtDur(ride)}): 30 min easy, then race effort for the rest`, 'Use your race-day bike set-up, kit and nutrition', `Straight into a 30 min run (about ${fmtKm(kmFor('run', 30, 'steady'), 'run')}): 10 min easy, then race effort`, 'Note what worked. Nothing new on race day'],
       why: 'Your dress rehearsal: practise pacing, fuelling and the change from bike to run.',
     }));
   }
-  const ride = round5(geo(P.ride0, P.peakRide, w.f) * w.k);
+  const km = Math.max(10, Math.round(geo(P.ride0Km, P.peakRideKm, w.f) * w.k));
+  const ride = minsFor('bike', km, 'easy');
+  const dist = `${km} km (about ${fmtDur(ride)})`;
   if (w.rec) {
-    return mk(w, 'longride', Object.assign(o, { sport: 'bike', title: w.firstEasy ? 'Easy-start long ride' : 'Easy long ride', mins: ride, effort: 'easy', steps: [`Ride ${fmtDur(ride)} easy and relaxed`, 'Keep it chatty the whole way', 'Fuel like a normal long ride'], why: w.firstEasy ? 'An easy first week to find your rhythm before the build starts.' : 'A lighter week lets your body absorb the training and come back stronger.' }));
+    return mk(w, 'longride', Object.assign(o, { sport: 'bike', title: w.firstEasy ? 'Easy-start long ride' : 'Easy long ride', mins: ride, effort: 'easy', steps: [`Ride ${dist} easy and relaxed`, 'Keep it chatty the whole way', 'Fuel like a normal long ride'], why: w.firstEasy ? 'An easy first week to find your rhythm before the build starts.' : 'A lighter week lets your body absorb the training and come back stronger.' }));
   }
   const steps = [];
   let effort = 'easy';
   if (w.phase === 'base') {
-    steps.push('First 15 min very easy to warm up', `Ride ${fmtDur(ride)} at an easy, chatty effort`, 'Keep pedalling smooth (about 80–95 rpm) and stay relaxed on the hills');
+    steps.push('First 15 min very easy to warm up', `Ride ${dist} at an easy, chatty effort`, 'Keep pedalling smooth (about 80–95 rpm) and stay relaxed on the hills');
   } else {
     const n = w.phase === 'peak' ? 3 : 2, len = w.phase === 'peak' ? 25 : w.wtr <= 9 ? 20 : 15;
-    steps.push('20 min easy');
-    if (n * (len + 5) <= ride - 40) { effort = 'mixed'; steps.push(`${n} × ${len} min at race effort, 5 min easy between`, 'The rest easy and steady'); } else steps.push(`Ride ${fmtDur(ride)} at an easy, chatty effort`);
+    if (n * (len + 5) <= ride - 40) { effort = 'mixed'; steps.push(`Ride ${dist} in total`, 'Start with 20 min easy', `${n} × ${len} min at race effort, 5 min easy between`, 'The rest easy and steady'); } else steps.push(`Ride ${dist} at an easy, chatty effort`);
   }
   steps.push('Eat every 30 min and sip every 10–15 min');
   const brick = BRICK_RUN[w.wtr] || 0;
   if (brick) {
-    steps.push(`Straight off the bike, run ${brick} min easy. Change quickly: it’s transition practice too`);
+    steps.push(`Straight off the bike, run ${brick} min easy (about ${fmtKm(kmFor('run', brick, effort), 'run')}). Change quickly: it’s transition practice too`);
     return mk(w, 'longride', Object.assign(o, { sport: 'brick', title: 'Long ride + brick run', mins: ride + brick, parts: [{ sport: 'bike', mins: ride }, { sport: 'run', mins: brick }], effort, steps, why: o.why + ' The brick run teaches your legs to run off the bike.' }));
   }
   return mk(w, 'longride', Object.assign(o, { sport: 'bike', title: 'Long ride', mins: ride, effort, steps }));
@@ -215,20 +288,24 @@ function longRun(w, P) {
   const o = { sport: 'run', key: true, w: 2.5, wxk: 'longrun', why: 'Builds the running endurance for the half marathon at the end of your day.' };
   if (w.phase === 'taper') return mk(w, 'longrun', Object.assign(o, { title: 'Taper run', mins: Math.min(60, round5(P.peakRun * 0.6)), effort: 'mixed', steps: ['15 min easy', '3 × 5 min at race effort, 3 min easy between', 'Easy to finish'], why: 'Shorter, with a touch of race effort to stay sharp.' }));
   if (w.sharpen) {
-    const m = round5(P.peakRun * 0.75);
-    return mk(w, 'longrun', Object.assign(o, { title: 'Last long run', mins: m, effort: 'easy', steps: [`Run ${fmtDur(m)} easy`, 'Your last long one: keep it relaxed and enjoy it'], tips: m >= 75 ? [FUEL_RUN] : [] }));
+    const km = runKm(P.peakRunKm * 0.75, P.peakRunKm);
+    const m = minsFor('run', km, 'easy');
+    return mk(w, 'longrun', Object.assign(o, { title: 'Last long run', mins: m, effort: 'easy', steps: [`Run ${fmtKm(km, 'run')} easy (about ${fmtDur(m)})`, 'Your last long one: keep it relaxed and enjoy it'], tips: m >= 75 ? [FUEL_RUN] : [] }));
   }
-  const m = round5(geo(P.run0, P.peakRun, w.f) * w.k);
+  const km = runKm(geo(P.run0Km, P.peakRunKm, w.f) * w.k, P.peakRunKm);
+  const m = minsFor('run', km, 'easy');
+  const dist = `${fmtKm(km, 'run')} (about ${fmtDur(m)})`;
   const tips = m >= 75 ? [FUEL_RUN] : [];
-  if (w.rec) return mk(w, 'longrun', Object.assign(o, { title: w.firstEasy ? 'Easy-start long run' : 'Easy long run', mins: m, effort: 'easy', tips, steps: [`Run ${fmtDur(m)} easy`, 'Walk breaks are fine', 'Finish feeling like you could do more'] }));
+  if (m >= 140) tips.push('This is a long time on your feet. Walk breaks are fine and won’t stop you finishing the distance.');
+  if (w.rec) return mk(w, 'longrun', Object.assign(o, { title: w.firstEasy ? 'Easy-start long run' : 'Easy long run', mins: m, effort: 'easy', tips, steps: [`Run ${dist} easy`, 'Walk breaks are fine', 'Finish feeling like you could do more'] }));
   if (w.phase === 'base') {
-    return mk(w, 'longrun', Object.assign(o, { title: 'Long run', mins: m, effort: 'easy', tips, steps: ['Start slower than feels natural', `Run ${fmtDur(m)} at an easy, chatty effort`, 'Walk breaks are fine: try 9 min run, 1 min walk if you need them', 'Time on your feet matters more than pace'] }));
+    return mk(w, 'longrun', Object.assign(o, { title: 'Long run', mins: m, effort: 'easy', tips, steps: ['Start slower than feels natural', `Run ${dist} at an easy, chatty effort`, 'Walk breaks are fine: try 9 min run, 1 min walk if you need them', 'Time on your feet matters more than pace'] }));
   }
   if (w.phase === 'peak' && w.wtr % 2 === 1 && m >= 70) {
-    return mk(w, 'longrun', Object.assign(o, { title: 'Long run, race-effort middle', mins: m, effort: 'mixed', tips, steps: ['20 min easy', '30 min at race effort', `${fmtDur(m - 50)} easy to finish`] }));
+    return mk(w, 'longrun', Object.assign(o, { title: 'Long run, race-effort middle', mins: m, effort: 'mixed', tips, steps: [`Run ${dist} in total`, '20 min easy', '30 min at race effort', `${fmtDur(m - 50)} easy to finish`] }));
   }
   const fin = w.wtr >= 10 ? 10 : 15;
-  return mk(w, 'longrun', Object.assign(o, { title: 'Long run, steady finish', mins: m, effort: 'mixed', tips, steps: ['Easy for most of it', `Last ${fin} min at race effort`, '5 min walk to cool down'] }));
+  return mk(w, 'longrun', Object.assign(o, { title: 'Long run, steady finish', mins: m, effort: 'mixed', tips, steps: [`Run ${dist} in total`, 'Easy for most of it', `Last ${fin} min at race effort`, 'Walk 5 min to cool down'] }));
 }
 
 function runTwo(w, P) {

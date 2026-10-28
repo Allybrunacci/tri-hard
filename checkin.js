@@ -61,7 +61,7 @@ function feelAdjust(s, f) {
     Object.assign(s, {
       sport: 'bike', wxk: 'ride', effort: 'easy', tips: [],
       title: s.custom ? `${s.title}: easy spin instead` : longOne ? 'Easy ride instead of your long run' : 'Easy spin instead of your run',
-      steps: [`Spin ${fmtDur(s.mins)} easy, indoors or on a flat route`, 'Light gears and a quick cadence to loosen your legs', 'Run again once walking and jogging feel normal'],
+      steps: [`Spin ${fmtDur(s.mins)} easy (about ${fmtKm(kmFor('bike', s.mins, 'easy'), 'bike')}), indoors or on a flat route`, 'Light gears and a quick cadence to loosen your legs', 'Run again once walking and jogging feel normal'],
       why: 'Swapped for an easy spin to give sore legs a break.',
     });
     return;
@@ -69,11 +69,12 @@ function feelAdjust(s, f) {
   // A ride, run or brick: easy all the way, shorter, and no run off the bike.
   const sport = s.parts ? 'bike' : s.sport;
   const m = Math.max(20, round5((s.parts ? s.parts[0].mins : s.mins) * (f === 'tired' ? 0.7 : 0.85)));
+  const effort = s.effort === 'recovery' ? 'recovery' : 'easy';
   Object.assign(s, {
-    sport, parts: null, mins: m, effort: s.effort === 'recovery' ? 'recovery' : 'easy',
+    sport, parts: null, mins: m, effort,
     title: s.custom ? s.title : longOne ? `Shorter, easy long ${sport === 'bike' ? 'ride' : 'run'}` : hard || s.orig.parts ? (sport === 'bike' ? 'Easy ride' : 'Easy run') : s.title,
     steps: [
-      `${sport === 'bike' ? 'Ride' : 'Run'} ${fmtDur(m)} easy and relaxed`,
+      `${sport === 'bike' ? 'Ride' : 'Run'} ${fmtDur(m)} easy and relaxed (about ${fmtKm(kmFor(sport, m, effort), sport)})`,
       hard ? 'Skip the race-effort blocks today' : null,
       s.orig.parts ? 'Skip the run off the bike today' : null,
       longOne && sport === 'bike' ? 'Eat and drink like a normal long ride' : null,

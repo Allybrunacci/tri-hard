@@ -5,6 +5,8 @@ const RIDE_OPTS = [[45, 'Under 1h'], [75, '1–1.5h'], [105, '1.5–2h'], [135, 
 const RUN_OPTS = [[25, 'Under 30m'], [40, '30–45m'], [55, '45–60m'], [70, '1–1.25h'], [85, '1.25h+']];
 const HOUR_OPTS = [[6, '5–6 h'], [8, '7–8 h'], [10, '9–10 h'], [12, '11 h+']];
 const WHEN_OPTS = [['morning', 'Mornings'], ['evening', 'Evenings'], ['any', 'Whenever']];
+const SPEED_OPTS = [[21, 'Under 23 km/h'], [24.5, '23–26 km/h'], [27.5, '26–29 km/h'], [31, 'Over 29 km/h']];
+const PACE_OPTS = [[450, 'Over 7:00 /km'], [405, '6:30–7:00 /km'], [375, '6:00–6:30 /km'], [345, '5:30–6:00 /km'], [315, 'Under 5:30 /km']];
 const nearest = (opts, v) => opts.reduce((a, b) => (Math.abs(b[0] - v) < Math.abs(a[0] - v) ? b : a))[0];
 const availSelect = (name, v) => `<select class="input sm" name="${name}">${AVAIL_OPTS.map(m => `<option value="${m}"${m === v ? ' selected' : ''}>${fmtAvail(m)}</option>`).join('')}</select>`;
 
@@ -62,6 +64,7 @@ function openSettings(section) {
   let results = [], searching = false, paste = false;
   const tpl = () => {
     const host = location.hostname || 'localhost';
+    const pc = paces();
     const strava = stravaConnected()
       ? `<div class="set-row"><span><b>Connected${S.strava.athlete ? ` as ${esc(S.strava.athlete)}` : ''}</b><small>${S.strava.last ? `Last synced ${relTime(S.strava.last)}` : 'Not synced yet'}</small></span><button type="button" class="btn sm orange" data-act="sync">${icon('sync')} Sync</button></div>
         <div class="btn-row"><button type="button" class="btn ghost" data-act="disconnect">Disconnect Strava</button></div>`
@@ -90,6 +93,12 @@ function openSettings(section) {
         <div class="field"><span class="label">Hours a week you can train, on average</span>${seg(HOUR_OPTS, S.base.hours, 'hours')}</div>
         ${switchRow('adapt', 'Safe build-up', 'Holds the long ride and run back if you’ve fallen behind, then builds up again', S.settings.adapt)}
         ${switchRow('checkin', 'Daily check-in', 'Asks how you feel each day, and eases today’s training when you’re tired, sore or sick', S.settings.checkin)}
+      </div></div>
+      <div class="set-group" id="set-pace"><h3>Your easy pace</h3><div class="card pad">
+        <p class="hint first">Sets the distances in your plan. Whatever your pace, the long ride and long run build to at least 90 km and 21.1 km before race day.</p>
+        <div class="set-row"><span><b>Riding</b><small>${pc.rideN ? `From your last ${plural(pc.rideN, 'ride')}` : 'Your easy, chatty speed'}</small></span>${pc.rideN ? `<output class="pace-out">${pc.ride} km/h</output>` : stepper('pride', S.pace.ride, 'Easy riding speed', `${S.pace.ride} km/h`)}</div>
+        <div class="set-row"><span><b>Running</b><small>${pc.runN ? `From your last ${plural(pc.runN, 'run')}` : 'Your easy, chatty pace'}</small></span>${pc.runN ? `<output class="pace-out">${fmtPace(pc.run)}</output>` : stepper('prun', S.pace.run, 'Easy running pace', fmtPace(S.pace.run))}</div>
+        ${switchRow('paceauto', 'Learn it from my logs', 'Uses your rides and runs with a distance from the last 8 weeks', S.pace.auto)}
       </div></div>
       <div class="set-group" id="set-week"><h3>Your usual week</h3><div class="card pad">
         <p class="hint first">How much time you usually have to train each day. Change any single week by tapping its clock on the Week page.</p>
@@ -124,6 +133,8 @@ function openSettings(section) {
         if (n === 'ride') { S.base.ride = clamp(S.base.ride + 15 * d, 30, 240); rebuilt(); }
         if (n === 'run') { S.base.run = clamp(S.base.run + 5 * d, 15, 150); rebuilt(); }
         if (n === 'heat') { S.settings.heat = clamp(S.settings.heat + d, 22, 38); save(); render(); }
+        if (n === 'pride') { S.pace.ride = clamp(S.pace.ride + 0.5 * d, 12, 45); S.pace.set = true; rebuilt(); }
+        if (n === 'prun') { S.pace.run = clamp(S.pace.run + 5 * d, 180, 600); S.pace.set = true; rebuilt(); }
         s.set(tpl());
       },
       hours(a, e, s) { S.base.hours = +a.dataset.v; rebuilt(); s.set(tpl()); },
@@ -186,6 +197,7 @@ function openSettings(section) {
       if (/^av\d$/.test(t.name)) { S.avail[+t.name[2]] = +t.value; save(); render(); return; }
       if (t.name === 'adapt') { S.settings.adapt = t.checked; rebuilt(); return; }
       if (t.name === 'checkin') { S.settings.checkin = t.checked; save(); render(); return; }
+      if (t.name === 'paceauto') { S.pace.auto = t.checked; S.pace.set = true; rebuilt(); s.set(tpl()); return; }
       if (t.name === 'fx') { S.settings.fx = t.checked; save(); }
       if (t.name === 'race') render();
     },
@@ -203,6 +215,7 @@ function startOnboarding() {
   const st = {
     step: 0, name: S.name, race: S.race.name, date: S.race.date,
     ride: nearest(RIDE_OPTS, S.base.ride), run: nearest(RUN_OPTS, S.base.run), hours: S.base.hours,
+    speed: nearest(SPEED_OPTS, S.pace.ride), pace: nearest(PACE_OPTS, S.pace.run),
     avail: S.avail.slice(), when: S.when, loc: S.loc, results: [], busy: false,
   };
   const chipRow = (opts, cur, act) => `<div class="chips big">${opts.map(([v, l]) => `<button type="button" class="chip${String(v) === String(cur) ? ' on' : ''}" data-act="${act}" data-v="${v}">${l}</button>`).join('')}</div>`;
@@ -225,6 +238,9 @@ function startOnboarding() {
         <p class="lead">Be honest: the plan builds steadily from here so your endurance grows without injury.</p>
         <div class="field"><span class="label">${icon('bike')} Your longest ride in the last month</span>${chipRow(RIDE_OPTS, st.ride, 'ride')}</div>
         <div class="field"><span class="label">${icon('run')} Your longest run in the last month</span>${chipRow(RUN_OPTS, st.run, 'run')}</div>
+        <div class="field"><span class="label">${icon('bike')} Your easy riding speed</span>${chipRow(SPEED_OPTS, st.speed, 'speed')}</div>
+        <div class="field"><span class="label">${icon('run')} Your easy running pace</span>${chipRow(PACE_OPTS, st.pace, 'pace')}</div>
+        <p class="hint">These set the distances in your plan, which build to the full 90 km ride and 21.1 km run. Tri Hard fine-tunes them from the workouts you log.</p>
         <div class="field"><span class="label">${icon('clock')} Hours a week you can train, on average</span>${chipRow(HOUR_OPTS, st.hours, 'hours')}</div>
         <p class="note-box">${icon('swim')}<span>Your swimming’s already strong, so the plan keeps it to <b>one swim a week</b> and puts the extra time into the bike and run.</span></p>`;
     }
@@ -261,6 +277,7 @@ function startOnboarding() {
     S.race.date = isKey(st.date) && st.date > addDays(today(), 27) ? st.date : RACE_DEFAULT;
     S.start = mondayOf(today());
     S.base = { ride: st.ride, run: st.run, hours: st.hours };
+    S.pace = Object.assign(S.pace, { ride: st.speed, run: st.pace, set: true });
     S.avail = st.avail.slice();
     S.when = st.when;
     S.onboarded = true;
@@ -292,7 +309,7 @@ function startOnboarding() {
       if (st.step === 0 && !(isKey(st.date) && st.date > addDays(today(), 27))) { toast('Pick a race day at least 4 weeks away'); return; }
       st.step++; draw();
     } else if (act === 'back') { st.step--; draw(); } else if (act === 'finish') finish();
-    else if (act === 'ride' || act === 'run' || act === 'hours') { st[act] = +a.dataset.v; draw(true); } else if (act === 'when') { st.when = a.dataset.v; draw(true); } else if (act === 'locate') {
+    else if (act === 'ride' || act === 'run' || act === 'hours' || act === 'speed' || act === 'pace') { st[act] = +a.dataset.v; draw(true); } else if (act === 'when') { st.when = a.dataset.v; draw(true); } else if (act === 'locate') {
       toast('Finding you…');
       wxLocate().then(loc => { st.loc = loc; draw(true); }).catch(err => toast(esc(err.message)));
     } else if (act === 'search') {

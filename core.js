@@ -1,7 +1,7 @@
 /* Tri Hard — core: helpers, dates, storage, UI kit and router */
 'use strict';
 
-const APP_VERSION = '1.1.0';
+const APP_VERSION = '1.2.0';
 const STORE_KEY = 'tri-hard:v1';
 const WX_KEY = 'tri-hard:wx';
 const RACE_DEFAULT = '2027-05-02';
@@ -91,6 +91,7 @@ function freshState() {
     settings: { fx: true, heat: 28, adapt: true, checkin: true },
     kit: { done: {}, hide: {}, mine: [] },
     fuel: { bikeG: 60, bikeMl: 750, gelEvery: 30, bikeMins: 180, runMins: 135 },
+    pace: { ride: 25, run: 390, auto: true, set: false },
     savedAt: 0,
   };
 }
@@ -199,6 +200,13 @@ function migrate(d) {
     gelEvery: step(fu.gelEvery, 5, 30, 15, 60),
     bikeMins: step(fu.bikeMins, 5, 180, 90, 480),
     runMins: step(fu.runMins, 5, 135, 60, 360),
+  };
+  const pc = d.pace && typeof d.pace === 'object' ? d.pace : {};
+  s.pace = {
+    ride: clamp(Math.round((+pc.ride || 25) * 2) / 2, 12, 45),
+    run: clamp(Math.round((+pc.run || 390) / 5) * 5, 180, 600),
+    auto: pc.auto !== false,
+    set: !!pc.set,
   };
   s.savedAt = +d.savedAt || 0;
   return s;

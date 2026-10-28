@@ -115,14 +115,20 @@ function woCard(s, key, past) {
   const drag = !s.done && s.fixed == null;
   const sub = [];
   if (s.sport === 'swim' && s.metres) sub.push(`${s.metres.toLocaleString('en-AU')} m`);
+  else if (s.sport !== 'race') { const dl = distLabel(s); if (dl) sub.push(dl); }
   sub.push(resting ? 'Rest today' : EFFORT[s.effort] ? EFFORT[s.effort].name : 'Easy');
   if (s.opt && !resting) sub.push('optional');
+  const lead = legKm(s)[0];
+  const race = s.milestone && !resting && legKm(s).some(x => x.sport === s.milestone && reaches(x.sport, s.milestone === 'swim' ? s.cont / 1000 : x.km));
   let delta = '';
   if (resting) delta = '<em class="delta unwell">unwell</em>';
   else if (s.eased) delta = `<em class="delta eased">eased</em>`;
   else if (!s.done && s.capped) delta = '<em class="delta held">held back</em>';
-  else if (!s.done && s.delta && s.delta > 0) delta = `<em class="delta up">+${s.delta}m</em>`;
-  else if (!s.done && s.delta && s.delta < 0 && s.key) delta = `<em class="delta down">${s.delta}m</em>`;
+  else if (race) delta = '<em class="delta race">race distance</em>';
+  else if (!s.done && s.deltaKm && s.deltaKm > 0 && lead) delta = `<em class="delta up">+${fmtKm(s.deltaKm, lead.sport)}</em>`;
+  else if (!s.done && s.deltaKm && s.deltaKm < 0 && s.key && lead) delta = `<em class="delta down">−${fmtKm(-s.deltaKm, lead.sport)}</em>`;
+  else if (!s.done && s.deltaKm == null && s.delta && s.delta > 0) delta = `<em class="delta up">+${s.delta}m</em>`;
+  else if (!s.done && s.deltaKm == null && s.delta && s.delta < 0 && s.key) delta = `<em class="delta down">${s.delta}m</em>`;
   const side = s.done ? `<span class="tick">${icon('check')}</span>`
     : resting ? `<span class="pin">${icon('rest')}</span>`
       : warn ? `<span class="warn ${warn.cls}">${icon(warn.icon)}${warn.text}</span>`
@@ -415,7 +421,7 @@ function openSession(sid) {
     const tips = s.tips.slice();
     if (wx && outdoor && wx.feel - S.settings.heat >= 0) tips.unshift(`Hot one: ${bt ? `go at ${fmtHour(bt.from)} while it’s ${Math.round(bt.hi)}°, ` : ''}carry extra fluid with electrolytes, and slow down if you need to.`);
     if (wx && wx.storm) tips.unshift('Storms are forecast. Have an indoor option (trainer or treadmill) and stay off the road if there’s lightning.');
-    const parts = s.parts ? `<div class="parts">${s.parts.map(p => `<span>${badge(p.sport, 'xs')}${SPORTS[p.sport].name} ${fmtDur(p.mins)}</span>`).join('<i>then</i>')}</div>` : '';
+    const parts = s.parts ? `<div class="parts">${s.parts.map((p, i) => `<span>${badge(p.sport, 'xs')}${SPORTS[p.sport].name} ${fmtDur(p.mins)} · ${fmtKm(legKm(s)[i].km, p.sport)}</span>`).join('<i>then</i>')}</div>` : '';
     const days = Array.from({ length: 7 }, (_, d) => dayInfo(key, d));
     const canDone = !s.done && key <= mondayOf(t);
     const doneDays = days.filter(x => x.k <= t);
@@ -434,6 +440,15 @@ function openSession(sid) {
       feelNote = `<div class="note feel-note f-${dayFeel}">${icon(FEEL[dayFeel].icon)}<span><b>The full session</b>, even though you’re ${feelWord(dayFeel)} today. Listen to your body. <button type="button" class="link-btn" data-act="fulloff">${dayFeel === 'sick' ? 'Rest instead' : 'Ease it again'}</button></span></div>`;
     }
     const kitLink = s.sport === 'race' || s.role === 'shake' || (s.role === 'longride' && planWeek(key) && planWeek(key).sharpen);
+    const legs = s.sport === 'race' ? [] : legKm(s);
+    const lead = legs[0];
+    const pc = paces();
+    const moving = [...new Set(legs.map(x => x.sport))].filter(sp => sp !== 'swim');
+    const learned = moving.some(sp => (sp === 'bike' ? pc.rideN : pc.runN));
+    const distNote = moving.length && !s.rest ? `<p class="dist-note">${icon('route')}<span>Distance from your easy pace of ${moving.map(sp => (sp === 'bike' ? `<b>${pc.ride} km/h</b> riding` : `<b>${fmtPace(pc.run)}</b> running`)).join(' and ')}${learned ? ', learned from what you’ve logged' : ''}.${s.effort === 'steady' ? ' Race effort is a little quicker.' : ''} <button type="button" class="link-btn" data-act="pace">${learned || S.pace.set ? 'Change' : 'Set your pace'}</button></span></p>` : '';
+    const raceDist = s.milestone && !s.rest && !s.eased && legs.some(x => x.sport === s.milestone && reaches(x.sport, s.milestone === 'swim' ? s.cont / 1000 : x.km));
+    const raceNote = raceDist ? `<div class="note race-note">${icon('flag')}<span><b>Race distance!</b> ${s.milestone === 'swim' ? `${(s.cont / 1000).toFixed(1)} km in one go is your first swim of the full 1.9 km or more.` : s.milestone === 'bike' ? `${fmtKm(lead.km, 'bike')} is your first ride of the full 90 km or more.` : `${fmtKm(lead.km, 'run')} is your first run of the full half-marathon distance.`}</span></div>` : '';
+    const distStat = legs.length ? `<div><small>Distance</small><b>${legs.map(x => kmNum(x.km, x.sport === 'swim' ? 'run' : x.sport)).join('<i>+</i>')}<i>km</i></b></div>` : '';
     return `<div class="ss-head s-${s.sport}">
         ${badge(s.sport, 'lg')}
         <div><div class="kicker">${s.sport === 'race' ? fmtLong(S.race.date) : `${weekLabel(key)}${s.day != null ? ` · ${DAYS_LONG[s.day]}` : ' · not on a day yet'}`}</div><h2>${esc(s.title)}</h2></div>
@@ -441,13 +456,16 @@ function openSession(sid) {
       </div>
       <div class="ss-stats">
         <div><small>Time</small><b>${s.sport === 'race' ? '70.3' : durHtml(s)}</b></div>
-        ${s.metres ? `<div><small>Distance</small><b>${(s.metres / 1000).toFixed(1)}<i>km</i></b></div>` : ''}
+        ${distStat}
         <div><small>Effort</small><b class="eff">${ef.name}</b></div>
       </div>
       ${parts}
+      ${distNote}
+      ${raceNote}
       ${feelNote}
-      ${s.capped && !s.eased && !s.rest ? `<div class="note held">${icon('heart')}<span>Held back to <b>${fmtDur(s.capped.mins)}</b> (the plan says ${fmtDur(s.capped.plan)}). Your longest ${s.role === 'longrun' ? 'run' : 'ride'} in the last 4 weeks was ${fmtDur(s.capped.best)}, so this builds back up safely. Log a longer one and the plan catches up.</span></div>` : ''}
-      ${s.delta && s.delta > 0 && !s.done && !s.eased && !s.rest ? `<div class="note up">${icon('progress')}<span><b>${s.delta} min more</b> than last week. Small steps add up to race day.</span></div>` : ''}
+      ${s.capped && !s.eased && !s.rest ? `<div class="note held">${icon('heart')}<span>Held back to <b>${fmtDur(s.capped.mins)}</b>${lead ? `, about ${fmtKm(lead.km, lead.sport)}` : ''} (the plan says ${fmtDur(s.capped.plan)}). Your longest ${s.role === 'longrun' ? 'run' : 'ride'} in the last 4 weeks was ${fmtDur(s.capped.best)}, so this builds back up safely. Log a longer one and the plan catches up.</span></div>` : ''}
+      ${!s.done && !s.eased && !s.rest && !s.capped && s.deltaKm && s.deltaKm > 0 && lead ? `<div class="note up">${icon('progress')}<span><b>${fmtKm(s.deltaKm, lead.sport)} further</b> than last week. Small steps add up to race day.</span></div>`
+        : s.deltaKm == null && s.delta && s.delta > 0 && !s.done && !s.eased && !s.rest ? `<div class="note up">${icon('progress')}<span><b>${s.delta} min more</b> than last week. Small steps add up to race day.</span></div>` : ''}
       <div class="effort-box"><b>${ef.rpe}</b> ${ef.talk}</div>
       ${s.steps.length ? `<h3 class="ss-h">The session</h3><ol class="steps">${s.steps.map(x => `<li>${x}</li>`).join('')}</ol>` : ''}
       ${s.why ? `<p class="ss-why">${icon('spark')}<span>${esc(s.why)}</span></p>` : ''}
@@ -491,7 +509,9 @@ function openSession(sid) {
         const k = $('[data-act="done"]', sh.el).dataset.k;
         const sport = s.parts ? 'bike' : LOG_SPORTS.includes(s.sport) ? s.sport : 'other';
         const mins = s.parts ? s.parts[0].mins : s.mins;
-        openLogSheet(null, { sport, d: k, h: Math.floor(mins / 60), m: mins % 60, name: s.title, match: s.id, km: s.metres ? String(s.metres) : '' });
+        const lead = legKm(s)[0];
+        const km = s.metres ? String(s.metres) : lead && (sport === 'bike' || sport === 'run') ? String(Math.round(lead.km * 10) / 10) : '';
+        openLogSheet(null, { sport, d: k, h: Math.floor(mins / 60), m: mins % 60, name: s.title, match: s.id, km });
       },
       undone(a, e, sh) {
         const s = findSession(sid);
@@ -562,6 +582,7 @@ function openSession(sid) {
         render();
       },
       kit() { const s = findSession(sid); openRaceKit(s && s.sport === 'race' ? 'morning' : 'pack'); },
+      pace() { openSettings('pace'); },
       delcustom(a, e, sh) {
         const s = findSession(sid);
         const st = weekEdit(s.week);

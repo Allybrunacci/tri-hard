@@ -74,7 +74,7 @@ function stats() {
     const logs = S.logs.filter(l => l.d >= addDays(P.start, -42) && l.d <= t);
     const c = { mins: 0, sessions: 0, maxRide: 0, maxRideKm: 0, maxRun: 0, maxRunKm: 0, maxSwimKm: 0, swimKm: 0, bricks: 0, maxWeek: 0, streak: 0 };
     const recent = addDays(t, -42);
-    c.recent = { ride: 0, run: 0, swimKm: 0, swim: 0 };
+    c.recent = { ride: 0, run: 0, swimKm: 0, swim: 0, rideKm: 0, runKm: 0 };
     for (const l of logs) {
       if (l.d < P.start) continue;
       c.mins += l.mins;
@@ -85,8 +85,8 @@ function stats() {
     }
     for (const l of logs) {
       if (l.d < recent) continue;
-      if (l.sport === 'bike') c.recent.ride = Math.max(c.recent.ride, l.mins);
-      if (l.sport === 'run') c.recent.run = Math.max(c.recent.run, l.mins);
+      if (l.sport === 'bike') { c.recent.ride = Math.max(c.recent.ride, l.mins); c.recent.rideKm = Math.max(c.recent.rideKm, logKm(l)); }
+      if (l.sport === 'run') { c.recent.run = Math.max(c.recent.run, l.mins); c.recent.runKm = Math.max(c.recent.runKm, logKm(l)); }
       if (l.sport === 'swim') { c.recent.swimKm = Math.max(c.recent.swimKm, l.km); c.recent.swim = Math.max(c.recent.swim, l.mins); }
     }
     const days = new Set(logs.filter(l => l.sport === 'bike').map(l => l.d));
@@ -170,11 +170,11 @@ VIEWS.progress = {
       <div class="tile t-orange"><small>Longest ride</small><b>${c.maxRide ? fmtHM(c.maxRide) : '–'}</b><span>${c.maxRideKm ? fmtDist(c.maxRideKm, 'bike') : 'so far'}</span></div>
       <div class="tile t-yellow"><small>Longest run</small><b>${c.maxRun ? fmtHM(c.maxRun) : '–'}</b><span>${c.maxRunKm ? fmtDist(c.maxRunKm, 'run') : 'so far'}</span></div>
     </div>`;
-    const ready = Math.round(100 * (0.4 * clamp(c.recent.ride / P.P.peakRide, 0, 1) + 0.4 * clamp(c.recent.run / P.P.peakRun, 0, 1) + 0.2 * clamp(c.recent.swimKm ? c.recent.swimKm / 1.9 : c.recent.swim / 40, 0, 1)));
+    const ready = Math.round(100 * (0.4 * clamp(c.recent.rideKm / RACE_KM.bike, 0, 1) + 0.4 * clamp(c.recent.runKm / RACE_KM.run, 0, 1) + 0.2 * clamp(c.recent.swimKm ? c.recent.swimKm / RACE_KM.swim : c.recent.swim / 40, 0, 1)));
     html += `<section class="card ready">
-      <div class="ready-top"><div><h3 class="card-title">Race readiness</h3><p class="card-sub">Your longest sessions in the last 6 weeks against what race day needs.</p></div><div class="ready-num"><b>${ready}</b><small>%</small></div></div>
-      ${gauge('Long ride', c.recent.ride, P.P.peakRide, fmtHM, 'g-bike')}
-      ${gauge('Long run', c.recent.run, P.P.peakRun, fmtHM, 'g-run')}
+      <div class="ready-top"><div><h3 class="card-title">Race readiness</h3><p class="card-sub">Your longest sessions in the last 6 weeks against race distance.</p></div><div class="ready-num"><b>${ready}</b><small>%</small></div></div>
+      ${gauge('Long ride', c.recent.rideKm, RACE_KM.bike, v => fmtKm(v, 'bike'), 'g-bike')}
+      ${gauge('Long run', c.recent.runKm, RACE_KM.run, v => fmtKm(v, 'run'), 'g-run')}
       ${c.recent.swimKm ? gauge('Swim', c.recent.swimKm, 1.9, v => fmtDist(v, 'swim'), 'g-swim') : gauge('Swim', c.recent.swim, 40, fmtDur, 'g-swim')}
     </section>`;
     if (last) {

@@ -51,11 +51,13 @@ function autoMatch(weekKeys) {
 function quickDone(s, d) {
   const added = [];
   const parts = s.sport === 'race' ? [{ sport: 'other', mins: 0 }] : s.parts || [{ sport: s.sport, mins: s.mins }];
-  for (const p of parts) {
-    const l = normLog({ id: uid(), src: 'plan', d, sport: p.sport, mins: p.mins, km: p.sport === 'swim' && s.metres ? s.metres / 1000 : 0, name: s.title, sid: s.id, fixed: true });
+  const legs = s.sport === 'race' ? [] : legKm(s);
+  parts.forEach((p, i) => {
+    const km = p.sport === 'swim' && s.metres ? s.metres / 1000 : legs[i] && (p.sport === 'bike' || p.sport === 'run') ? Math.round(legs[i].km * 10) / 10 : 0;
+    const l = normLog({ id: uid(), src: 'plan', d, sport: p.sport, mins: p.mins, km, name: s.title, sid: s.id, fixed: true });
     S.logs.push(l);
     added.push(l.id);
-  }
+  });
   if (mondayOf(d) === s.week) weekEdit(s.week).at[s.id] = dayIdx(d);
   save();
   return () => { S.logs = S.logs.filter(l => !added.includes(l.id)); save(); render(); };
